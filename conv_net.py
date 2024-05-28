@@ -8,12 +8,12 @@ class ConvNet:
     def init_parameters():
         layers_data = {
             "conv1": {
-                "filters": [np.random.randn(3, 3) * np.sqrt(2 / (5 * 5))],
+                "filters": [np.random.rand(5, 5) * np.sqrt(2 / (5 * 5))],
                 "bias": np.zeros(1),
-                "padding_width": 2,
-                "padding_height": 2,
-                "stride_width": 2,
-                "stride_height": 2
+                "padding_width": 1,
+                "padding_height": 1,
+                "stride_width": 1,
+                "stride_height": 1
             },
             "pool1": {
                 "pool_width": 3,
@@ -21,7 +21,7 @@ class ConvNet:
                 "mode": "max"
             },
             "conv2": {
-                "filters": [np.random.randn(3, 3) * np.sqrt(2 / (3 * 3))],
+                "filters": [np.random.rand(3, 3) * np.sqrt(2 / (3 * 3))],
                 "bias": np.zeros(1),
                 "padding_width": 1,
                 "padding_height": 1,
@@ -118,13 +118,14 @@ class ConvLayer:
                         d_padded_input[j, row * self.stride_height: row * self.stride_height + self.filters[i].shape[0],
                                        col * self.stride_width: col * self.stride_width + self.filters[i].shape[1]] += d_out[i, row, col] * self.filters[i]
 
+        # Remove padding from d_padded_input to get d_input
         if self.padding_height > 0 and self.padding_width > 0:
             d_input = d_padded_input[:, self.padding_height:-self.padding_height, self.padding_width:-self.padding_width]
         else:
             d_input = d_padded_input
 
         return d_input, np.array(d_filters), d_bias
-    
+
 class PoolingLayer:
     def __init__(self, pool_width, pool_height, mode):
         self.pool_width = pool_width
@@ -232,6 +233,8 @@ def clip_gradients(gradients, threshold=1.0):
         clipped_gradients.append(gradient)
     return clipped_gradients
 
+######################################################
+
 def backward_pass(softmax_output, label, flattened_input, pooled_maps2, feature_maps2, pooled_maps1, feature_maps1, input_matrix, conv1, pool1, conv2, pool2, fc_layer):
     # One-hot encode the label
     label_one_hot = np.zeros(softmax_output.shape)
@@ -250,19 +253,19 @@ def backward_pass(softmax_output, label, flattened_input, pooled_maps2, feature_
     dL_dpooled_maps2 = dL_dfc_input.reshape(pooled_maps2.shape)
     
     # Backpropagate through second pooling layer
-    dL_dfeature_maps2 = pool2.backward_pool(dL_dpooled_maps2, feature_maps2)
+    # dL_dfeature_maps2 = pool2.backward_pool(dL_dpooled_maps2, feature_maps2)
     
     # Backpropagate through second convolutional layer
-    dL_dinput_pooled_maps1, dL_dconv2_filters, dL_dconv2_bias = conv2.backward_conv(dL_dfeature_maps2, pooled_maps1)
+    dL_dinput_pooled_maps1, dL_dconv2_filters, dL_dconv2_bias = conv2.backward_conv(dL_dpooled_maps2, pooled_maps1)
     
     # Clip gradients to prevent overflow
     dL_dconv2_filters, dL_dconv2_bias = clip_gradients([dL_dconv2_filters, dL_dconv2_bias])
     
     # Backpropagate through first pooling layer
-    dL_dfeature_maps1 = pool1.backward_pool(dL_dinput_pooled_maps1, feature_maps1)
+    # dL_dfeature_maps1 = pool1.backward_pool(dL_dinput_pooled_maps1, feature_maps1)
     
     # Backpropagate through first convolutional layer
-    dL_dinput_input_matrix, dL_dconv1_filters, dL_dconv1_bias = conv1.backward_conv(dL_dfeature_maps1, np.array([input_matrix]))
+    dL_dinput_input_matrix, dL_dconv1_filters, dL_dconv1_bias = conv1.backward_conv(dL_dinput_pooled_maps1, np.array([input_matrix]))
     
     # Clip gradients to prevent overflow
     dL_dconv1_filters, dL_dconv1_bias = clip_gradients([dL_dconv1_filters, dL_dconv1_bias])
@@ -287,7 +290,7 @@ def update_parameters(fc_layer, layers_data, dL_dfc_weights, dL_dfc_bias, dL_dco
     return layers_data
 
 def forward_pass(input_matrix, layers_data, label):
-    input_matrix = PoolingLayer.averagepooling2d(input_matrix, 2, 2)
+    # input_matrix = PoolingLayer.averagepooling2d(input_matrix, 3, 3)
     conv1 = ConvLayer(
         layers_data["conv1"]["filters"],
         layers_data["conv1"]["bias"],
@@ -304,8 +307,8 @@ def forward_pass(input_matrix, layers_data, label):
         layers_data["pool1"]["pool_height"],
         layers_data["pool1"]["mode"]
     )
-
-    pooled_maps1 = pool1.forward(feature_maps1)
+    # pooled_maps1 = pool1.forward(feature_maps1)
+    pooled_maps1 = feature_maps1 # Skip pooling for now
 
     conv2 = ConvLayer(
         layers_data["conv2"]["filters"],
@@ -323,8 +326,8 @@ def forward_pass(input_matrix, layers_data, label):
         layers_data["pool2"]["pool_height"],
         layers_data["pool2"]["mode"]
     )
-
-    pooled_maps2 = pool2.forward(feature_maps2)
+    # pooled_maps2 = pool2.forward(feature_maps2)
+    pooled_maps2 = feature_maps2 # Skip pooling for now
 
     flattened_input = pooled_maps2.flatten().reshape(-1, 1)
 
@@ -335,47 +338,42 @@ def forward_pass(input_matrix, layers_data, label):
     softmax_output = ConvNet.softmax(output1)
     return softmax_output, label, flattened_input, pooled_maps2, feature_maps2, pooled_maps1, feature_maps1, input_matrix, conv1, pool1, conv2, pool2, fc_layer
 
-def train(data, layers_data, epochs, learning_rate, batch_size=32):
+
+def train(data, layers_data, epochs, learning_rate):
     for epoch in range(epochs):
         np.random.shuffle(data)  # Shuffle the data for each epoch
         total_loss = 0
         accuracy = 0
-        for i in range(0, len(data), batch_size):
-            batch = data[i:i + batch_size]
-            batch_loss = 0
-            batch_accuracy = 0
-            for sample in batch:
-                input_matrix = sample[1:].reshape(28, 28)
-                label = int(sample[0])
+        for i in range(len(data)):
+            input_matrix = data[i][1:].reshape(28, 28)
+            label = int(data[i][0])
 
-                # Forward pass
-                softmax_output, label, flattened_input, pooled_maps2, feature_maps2, pooled_maps1, feature_maps1, input_matrix, conv1, pool1, conv2, pool2, fc_layer = forward_pass(
-                    input_matrix, layers_data, label)
+            # Forward pass
+            softmax_output, label, flattened_input, pooled_maps2, feature_maps2, pooled_maps1, feature_maps1, input_matrix, conv1, pool1, conv2, pool2, fc_layer = forward_pass(
+                input_matrix, layers_data, label)
 
-                # One-hot encode the label
-                label_one_hot = np.zeros(softmax_output.shape)
-                label_one_hot[label] = 1
+            # One-hot encode the label
+            label_one_hot = np.zeros(softmax_output.shape)
+            label_one_hot[label] = 1
 
-                loss = ConvNet.cross_entropy_loss(softmax_output, label_one_hot)
-                batch_loss += loss
+            loss = ConvNet.cross_entropy_loss(softmax_output, label_one_hot)
+            total_loss += loss
 
-                # Compute accuracy
-                predictions = np.argmax(softmax_output, axis=0)
-                batch_accuracy += int(predictions == label)
+            # Compute accuracy
+            predictions = np.argmax(softmax_output, axis=0)
+            accuracy += int(predictions == label)
 
-                # Backpropagation
-                dL_dfc_weights, dL_dfc_bias, dL_dconv2_filters, dL_dconv2_bias, dL_dconv1_filters, dL_dconv1_bias = backward_pass(
-                    softmax_output, label, flattened_input, pooled_maps2, feature_maps2, pooled_maps1, feature_maps1, input_matrix, conv1, pool1, conv2, pool2, fc_layer)
+            # Backpropagation
+            dL_dfc_weights, dL_dfc_bias, dL_dconv2_filters, dL_dconv2_bias, dL_dconv1_filters, dL_dconv1_bias = backward_pass(
+                softmax_output, label, flattened_input, pooled_maps2, feature_maps2, pooled_maps1, feature_maps1, input_matrix, conv1, pool1, conv2, pool2, fc_layer)
 
-                # Update parameters
-                layers_data = update_parameters(fc_layer, layers_data, dL_dfc_weights, dL_dfc_bias, dL_dconv2_filters, dL_dconv2_bias, dL_dconv1_filters, dL_dconv1_bias, learning_rate)
-            
-            total_loss += batch_loss
-            accuracy += batch_accuracy
-            
+            # Update parameters
+            layers_data = update_parameters(fc_layer, layers_data, dL_dfc_weights, dL_dfc_bias, dL_dconv2_filters, dL_dconv2_bias, dL_dconv1_filters, dL_dconv1_bias, learning_rate)
+
         print(f"Epoch {epoch + 1}/{epochs}, Loss: {total_loss / len(data)}, Accuracy: {accuracy / len(data)}")
 
     return layers_data
+
 
 ######################################################
 
@@ -383,20 +381,20 @@ def train(data, layers_data, epochs, learning_rate, batch_size=32):
 data = pd.read_csv('./data/train.csv')
 data = np.array(data)
 data[:, 1:] = data[:, 1:] / 255.0
-data = data[:1000]  # Use only the first 1000 samples for faster training
+data = data[:20]  # Use only the first 100 samples for faster training
 
 # Initialize the parameters
 layers_data = ConvNet.init_parameters()
 
 # Train the model
-epochs = 10
-learning_rate = 0.01
-batch_size = 32
-trained_layers_data = train(data, layers_data, epochs, learning_rate, batch_size)
+epochs = 1000
+learning_rate = 0.005
+trained_layers_data = train(data, layers_data, epochs, learning_rate)
 
 # Save the trained model
 np.save('data/trained_layers_data.npy', trained_layers_data)
 
+# Test the model on a sample image
 data = pd.read_csv('./data/train.csv')
 data = np.array(data)
 test_image = data[0][1:].reshape(28, 28)
@@ -412,4 +410,4 @@ print("Predicted Label:", predictions)
 print("True Label:", test_label)
 
 # Plot the charts (if required)
-plot_charts([test_image])
+plot_charts([test_image] + [feature_map for feature_map in feature_maps1] + [pooled_map for pooled_map in pooled_maps1] + [feature_map for feature_map in feature_maps2] + [pooled_map for pooled_map in pooled_maps2] + [flattened_input])
